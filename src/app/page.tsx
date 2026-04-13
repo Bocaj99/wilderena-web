@@ -7,12 +7,12 @@ export default function HomePage() {
       <section className="relative overflow-hidden">
         <div className="max-w-6xl mx-auto px-6 py-24 text-center">
           <Image
-            src="/wilderena.title.png"
+            src="/main.emblem.wilderena.png"
             alt="Wilderena"
-            width={640}
-            height={180}
+            width={400}
+            height={400}
             priority
-            className="mx-auto w-full max-w-xl h-auto drop-shadow-[0_0_30px_rgba(180,83,9,0.35)]"
+            className="mx-auto w-full max-w-xs h-auto drop-shadow-[0_0_40px_rgba(180,83,9,0.4)]"
           />
           <p className="mt-8 text-xl md:text-2xl text-stone-300 font-display tracking-wide">
             3v3 Capture the Flag — forged for RuneScape Dragonwilds
