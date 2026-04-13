@@ -8,7 +8,7 @@ export const metadata: Metadata = {
   description:
     "Wilderena is a competitive 3v3 Capture the Flag PvP mod for RuneScape Dragonwilds. Join ranked matches, climb the leaderboard, win glory.",
   icons: {
-    icon: "/logo-emblem.png"
+    icon: "/torch.wilderena.png"
   }
 };
 
