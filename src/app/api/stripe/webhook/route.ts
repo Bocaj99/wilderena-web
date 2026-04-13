@@ -1,17 +1,21 @@
 import { NextResponse } from "next/server";
 import type Stripe from "stripe";
-import { stripe } from "@/lib/stripe";
-import { supabaseAdmin } from "@/lib/supabase-admin";
+import { getStripe } from "@/lib/stripe";
+import { getSupabaseAdmin } from "@/lib/supabase-admin";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 // Stripe webhook: keeps public.subscriptions in sync with Stripe state.
 // Configure the endpoint in the Stripe dashboard to:
 //   https://wilderena.com/api/stripe/webhook
-// Subscribe to: checkout.session.completed,
-//   customer.subscription.created, customer.subscription.updated,
-//   customer.subscription.deleted, invoice.payment_failed
+// Subscribe to: customer.subscription.created,
+//   customer.subscription.updated, customer.subscription.deleted,
+//   invoice.payment_failed
 export async function POST(req: Request) {
+  const stripe = getStripe();
+  const supabaseAdmin = getSupabaseAdmin();
+
   const sig = req.headers.get("stripe-signature");
   if (!sig) return NextResponse.json({ error: "missing signature" }, { status: 400 });
 

@@ -1,11 +1,17 @@
 import { NextResponse } from "next/server";
-import { stripe } from "@/lib/stripe";
-import { supabaseAdmin } from "@/lib/supabase-admin";
+import { getStripe } from "@/lib/stripe";
+import { getSupabaseAdmin } from "@/lib/supabase-admin";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 // POST /api/stripe/checkout
 // Body: { userId: string }
 // Returns: { url: string } — Stripe Checkout Session URL
 export async function POST(req: Request) {
+  const stripe = getStripe();
+  const supabaseAdmin = getSupabaseAdmin();
+
   const { userId } = await req.json();
   if (!userId) {
     return NextResponse.json({ error: "userId required" }, { status: 400 });
