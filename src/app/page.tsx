@@ -7,7 +7,7 @@ export default function HomePage() {
       <section className="relative overflow-hidden">
         <div className="max-w-6xl mx-auto px-6 py-24 text-center">
           <Image
-            src="/logo-header.png"
+            src="/wilderena.title.png"
             alt="Wilderena"
             width={640}
             height={180}
