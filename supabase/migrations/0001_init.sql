@@ -122,7 +122,7 @@ create table public.match_players (
   match_id      uuid not null references public.matches(id) on delete cascade,
   licensing_id  text not null,
   display_name  text not null,
-  class         text not null,
+  class         text not null check (class in ('archer', 'assassin', 'guardian', 'berserker', 'fire_mage', 'air_mage')),
   team          smallint not null check (team in (0, 1)),
   kills         smallint not null default 0,
   deaths        smallint not null default 0,
