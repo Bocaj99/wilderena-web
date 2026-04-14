@@ -5,7 +5,7 @@
 #   powershell -NoProfile -ExecutionPolicy Bypass -Command "iwr https://wilderena.com/install.ps1 | iex"
 
 $ErrorActionPreference = "Stop"
-$ProgressPreference    = "SilentlyContinue"   # massive speedup for large downloads on PS 5.1
+$ProgressPreference    = "SilentlyContinue"
 try { $Host.UI.RawUI.WindowTitle = "Wilderena Mod Installer" } catch {}
 
 function Write-Banner($msg, $color = "Yellow") {
@@ -25,21 +25,20 @@ function Exit-WithPause($code) {
 Write-Banner "WILDERENA - Client Mod Installer"
 
 # ---------------------------------------------------------------------------
-# 1. Locate the RSDragonwilds install
+# 1. Locate the RSDragonwilds install (look for Binaries\Win64 as the anchor)
 # ---------------------------------------------------------------------------
-$candidatePaths = @(
-    "C:\Program Files (x86)\Steam\steamapps\common\RSDragonwilds\RSDragonwilds\Content\Paks",
-    "C:\Program Files\Steam\steamapps\common\RSDragonwilds\RSDragonwilds\Content\Paks",
-    "D:\SteamLibrary\steamapps\common\RSDragonwilds\RSDragonwilds\Content\Paks",
-    "E:\SteamLibrary\steamapps\common\RSDragonwilds\RSDragonwilds\Content\Paks",
-    "F:\SteamLibrary\steamapps\common\RSDragonwilds\RSDragonwilds\Content\Paks"
+$candidateRoots = @(
+    "C:\Program Files (x86)\Steam\steamapps\common\RSDragonwilds\RSDragonwilds",
+    "C:\Program Files\Steam\steamapps\common\RSDragonwilds\RSDragonwilds",
+    "D:\SteamLibrary\steamapps\common\RSDragonwilds\RSDragonwilds",
+    "E:\SteamLibrary\steamapps\common\RSDragonwilds\RSDragonwilds",
+    "F:\SteamLibrary\steamapps\common\RSDragonwilds\RSDragonwilds"
 )
 
-# Also query Steam's install path from the registry and walk libraryfolders.vdf
 try {
     $steamInstall = (Get-ItemProperty -Path "HKLM:\SOFTWARE\WOW6432Node\Valve\Steam" -Name "InstallPath" -ErrorAction SilentlyContinue).InstallPath
     if ($steamInstall) {
-        $candidatePaths += Join-Path $steamInstall "steamapps\common\RSDragonwilds\RSDragonwilds\Content\Paks"
+        $candidateRoots += Join-Path $steamInstall "steamapps\common\RSDragonwilds\RSDragonwilds"
 
         $vdfPath = Join-Path $steamInstall "steamapps\libraryfolders.vdf"
         if (Test-Path $vdfPath) {
@@ -47,62 +46,66 @@ try {
             $regex = [regex]'"path"\s*"([^"]+)"'
             foreach ($m in $regex.Matches($vdfContent)) {
                 $libPath = $m.Groups[1].Value -replace '\\\\', '\'
-                $candidatePaths += Join-Path $libPath "steamapps\common\RSDragonwilds\RSDragonwilds\Content\Paks"
+                $candidateRoots += Join-Path $libPath "steamapps\common\RSDragonwilds\RSDragonwilds"
             }
         }
     }
 } catch {}
 
-$gameDir = $null
-foreach ($path in $candidatePaths | Select-Object -Unique) {
-    if (Test-Path $path) {
-        $gameDir = $path
+$gameRoot = $null
+foreach ($path in $candidateRoots | Select-Object -Unique) {
+    $binTest = Join-Path $path "Binaries\Win64"
+    if (Test-Path $binTest) {
+        $gameRoot = $path
         break
     }
 }
 
-if (-not $gameDir) {
+if (-not $gameRoot) {
     Write-Host " [!] Could not find RSDragonwilds automatically." -ForegroundColor Red
     Write-Host ""
-    Write-Host " Please enter the path to your game's Content\Paks folder."
-    Write-Host " Example: C:\Program Files (x86)\Steam\steamapps\common\RSDragonwilds\RSDragonwilds\Content\Paks"
+    Write-Host " Please enter the path to your RSDragonwilds folder."
+    Write-Host " Example: C:\Program Files (x86)\Steam\steamapps\common\RSDragonwilds\RSDragonwilds"
     Write-Host ""
-    $gameDir = Read-Host " Path"
-    if (-not (Test-Path $gameDir)) {
+    $gameRoot = Read-Host " Path"
+    if (-not (Test-Path (Join-Path $gameRoot "Binaries\Win64"))) {
         Write-Host ""
-        Write-Host " [ERROR] Path not found." -ForegroundColor Red
+        Write-Host " [ERROR] Path not found or invalid." -ForegroundColor Red
         Exit-WithPause 1
     }
 }
 
+$paksDir = Join-Path $gameRoot "Content\Paks"
+$binDir  = Join-Path $gameRoot "Binaries\Win64"
+$logicModsDir = Join-Path $paksDir "LogicMods"
+
 Write-Host " [OK] Found game at:" -ForegroundColor Green
-Write-Host "      $gameDir"
+Write-Host "      $gameRoot"
 Write-Host ""
 
 # ---------------------------------------------------------------------------
 # 2. Ensure LogicMods folder exists
 # ---------------------------------------------------------------------------
-$logicModsDir = Join-Path $gameDir "LogicMods"
 if (-not (Test-Path $logicModsDir)) {
     New-Item -ItemType Directory -Path $logicModsDir | Out-Null
     Write-Host " [OK] Created LogicMods folder" -ForegroundColor Green
 }
 
 # ---------------------------------------------------------------------------
-# 3. Download the three pak files
+# 3. Download the PAK files (ModActor Blueprint)
 # ---------------------------------------------------------------------------
 $baseUrl = "https://cosbtlthecypogtciwkc.supabase.co/storage/v1/object/public/downloads/latest"
-$files = @(
+$pakFiles = @(
     "CTFScoreboard.pak",
     "CTFScoreboard.utoc",
-    "CTFScoreboard.ucas"   # largest — saved for last so a failure is cheap to retry
+    "CTFScoreboard.ucas"
 )
 
-Write-Host " Downloading Wilderena mod files..." -ForegroundColor Cyan
-Write-Host " (The .ucas file is ~280 MB — this may take a minute.)"
+Write-Host " Downloading Wilderena PAK files..." -ForegroundColor Cyan
+Write-Host " (The .ucas file is ~280 MB - this may take a minute.)"
 Write-Host ""
 
-foreach ($file in $files) {
+foreach ($file in $pakFiles) {
     $url  = "$baseUrl/$file"
     $dest = Join-Path $logicModsDir $file
     Write-Host "   > $file ... " -ForegroundColor White -NoNewline
@@ -122,11 +125,52 @@ foreach ($file in $files) {
 }
 
 # ---------------------------------------------------------------------------
-# 4. Done
+# 4. Download + extract WilderenaClient.zip (UE4SS + client VFX mod)
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host " Downloading Wilderena client VFX mod..." -ForegroundColor Cyan
+
+$clientZip = Join-Path $env:TEMP "WilderenaClient.zip"
+$clientUrl = "$baseUrl/WilderenaClient.zip"
+
+Write-Host "   > WilderenaClient.zip ... " -ForegroundColor White -NoNewline
+try {
+    Invoke-WebRequest -Uri $clientUrl -OutFile $clientZip -UseBasicParsing
+    $sizeMB = [math]::Round((Get-Item $clientZip).Length / 1MB, 1)
+    Write-Host "done ($sizeMB MB)" -ForegroundColor Green
+} catch {
+    Write-Host "FAILED" -ForegroundColor Red
+    Write-Host "     $($_.Exception.Message)" -ForegroundColor Red
+    Exit-WithPause 1
+}
+
+Write-Host "   > Extracting to Binaries\Win64 ... " -ForegroundColor White -NoNewline
+try {
+    # Extract over existing files (upsert semantics)
+    Expand-Archive -Path $clientZip -DestinationPath $binDir -Force
+    Write-Host "done" -ForegroundColor Green
+} catch {
+    Write-Host "FAILED" -ForegroundColor Red
+    Write-Host "     $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host ""
+    Write-Host " Common causes:" -ForegroundColor Yellow
+    Write-Host "   - The game is open. Close Dragonwilds and try again."
+    Write-Host "   - UE4SS DLL is locked by a previous process."
+    Exit-WithPause 1
+}
+
+# Clean up temp zip
+try { Remove-Item $clientZip -Force } catch {}
+
+# ---------------------------------------------------------------------------
+# 5. Done
 # ---------------------------------------------------------------------------
 Write-Banner "INSTALLATION COMPLETE!" "Green"
-Write-Host " Files installed to:"
+Write-Host " PAK files installed to:"
 Write-Host "   $logicModsDir"
+Write-Host ""
+Write-Host " UE4SS + WilderenaClient installed to:"
+Write-Host "   $binDir"
 Write-Host ""
 Write-Host " You can now launch Dragonwilds and join the Wilderena server." -ForegroundColor Cyan
 Write-Host " Need help? Join our Discord at https://wilderena.com"

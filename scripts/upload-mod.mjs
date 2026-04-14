@@ -20,7 +20,8 @@ const SOURCE_DIR = "C:\\Users\\Jacob\\WilderenaMod";
 const FILES = [
   "CTFScoreboard.pak",
   "CTFScoreboard.utoc",
-  "CTFScoreboard.ucas"
+  "CTFScoreboard.ucas",
+  "WilderenaClient.zip"
 ];
 const BUCKET = "downloads";
 const PREFIX = "latest";
