@@ -13,12 +13,14 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const comingSoon = process.env.NEXT_PUBLIC_COMING_SOON !== "false";
+
   return (
     <html lang="en">
-      <body className="font-sans min-h-screen flex flex-col">
-        <Header />
+      <body className="font-sans min-h-screen flex flex-col bg-stone-950">
+        {!comingSoon && <Header />}
         <main className="flex-1">{children}</main>
-        <Footer />
+        {!comingSoon && <Footer />}
       </body>
     </html>
   );
