@@ -115,22 +115,23 @@ foreach ($dl in $pakDownloads) {
     $dest = Join-Path $logicModsDir $dl.File
     Write-Host "   > $($dl.File) ... " -ForegroundColor White -NoNewline
     try {
-        # Use curl.exe for reliable large file downloads (built into Win10/11)
-        $curlExe = "$env:SystemRoot\System32\curl.exe"
+        # Use curl.exe for downloads (built into Win10/11, handles redirects + large files)
+        $curlExe = Join-Path $env:SystemRoot "System32\curl.exe"
         if (Test-Path $curlExe) {
-            & $curlExe -L -o $dest -# --retry 3 --connect-timeout 30 --max-time 900 $dl.Url 2>&1 | Out-Null
-            if ($LASTEXITCODE -ne 0) { throw "curl failed with exit code $LASTEXITCODE" }
+            Write-Host "" # newline for curl progress
+            & $curlExe -L -o $dest --retry 3 --connect-timeout 30 --max-time 900 --progress-bar $dl.Url
+            if ($LASTEXITCODE -ne 0) { throw "Download failed (curl exit code $LASTEXITCODE)" }
         } else {
-            # Fallback for older Windows
-            $wc = New-Object System.Net.WebClient
-            $wc.Headers.Add("User-Agent", "WilderenaInstaller/1.0")
-            $wc.DownloadFile($dl.Url, $dest)
-            $wc.Dispose()
+            # Fallback: Invoke-WebRequest (works for smaller files)
+            Invoke-WebRequest -Uri $dl.Url -OutFile $dest -UseBasicParsing -TimeoutSec 900
+        }
+        if (-not (Test-Path $dest) -or (Get-Item $dest).Length -lt 1000) {
+            throw "File is missing or too small after download"
         }
         $sizeMB = [math]::Round((Get-Item $dest).Length / 1MB, 1)
-        Write-Host "done ($sizeMB MB)" -ForegroundColor Green
+        Write-Host "   > $($dl.File) ... done ($sizeMB MB)" -ForegroundColor Green
     } catch {
-        Write-Host "FAILED" -ForegroundColor Red
+        Write-Host "   > $($dl.File) ... FAILED" -ForegroundColor Red
         Write-Host "     $($_.Exception.Message)" -ForegroundColor Red
         Write-Host ""
         Write-Host " Retry tip: re-run the installer. It will re-download only failed files."
