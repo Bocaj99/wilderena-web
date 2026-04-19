@@ -115,31 +115,20 @@ foreach ($dl in $pakDownloads) {
     $dest = Join-Path $logicModsDir $dl.File
     Write-Host "   > $($dl.File) ... " -ForegroundColor White -NoNewline
     try {
-        # Use WebRequest with streaming (PS 5.1 compatible, handles redirects)
-        $req = [System.Net.HttpWebRequest]::Create($dl.Url)
-        $req.UserAgent = "WilderenaInstaller/1.0"
-        $req.Timeout = 900000        # 15 minutes
-        $req.ReadWriteTimeout = 900000
-        $req.AllowAutoRedirect = $true
-        $resp = $req.GetResponse()
-        $totalSize = $resp.ContentLength
-        $stream = $resp.GetResponseStream()
-        $fs = [System.IO.File]::Create($dest)
-        $buffer = New-Object byte[] 131072  # 128KB chunks
-        $totalRead = 0
-        while (($read = $stream.Read($buffer, 0, $buffer.Length)) -gt 0) {
-            $fs.Write($buffer, 0, $read)
-            $totalRead += $read
-            if ($totalSize -gt 0) {
-                $pct = [math]::Round(($totalRead / $totalSize) * 100, 0)
-                Write-Host "`r   > $($dl.File) ... $pct% ($([math]::Round($totalRead/1MB,1)) MB)    " -NoNewline
-            }
+        # Use curl.exe for reliable large file downloads (built into Win10/11)
+        $curlExe = "$env:SystemRoot\System32\curl.exe"
+        if (Test-Path $curlExe) {
+            & $curlExe -L -o $dest -# --retry 3 --connect-timeout 30 --max-time 900 $dl.Url 2>&1 | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "curl failed with exit code $LASTEXITCODE" }
+        } else {
+            # Fallback for older Windows
+            $wc = New-Object System.Net.WebClient
+            $wc.Headers.Add("User-Agent", "WilderenaInstaller/1.0")
+            $wc.DownloadFile($dl.Url, $dest)
+            $wc.Dispose()
         }
-        $fs.Close()
-        $stream.Close()
-        $resp.Close()
         $sizeMB = [math]::Round((Get-Item $dest).Length / 1MB, 1)
-        Write-Host "`r   > $($dl.File) ... done ($sizeMB MB)                    " -ForegroundColor Green
+        Write-Host "done ($sizeMB MB)" -ForegroundColor Green
     } catch {
         Write-Host "FAILED" -ForegroundColor Red
         Write-Host "     $($_.Exception.Message)" -ForegroundColor Red
