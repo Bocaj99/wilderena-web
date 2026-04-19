@@ -112,16 +112,19 @@ foreach ($dl in $pakDownloads) {
     $dest = Join-Path $logicModsDir $dl.File
     Write-Host "   > $($dl.File) ... " -ForegroundColor White -NoNewline
     try {
-        Invoke-WebRequest -Uri $dl.Url -OutFile $dest -UseBasicParsing
+        # Use .NET WebClient for large files (handles redirects + no memory issues)
+        $wc = New-Object System.Net.WebClient
+        $wc.Headers.Add("User-Agent", "WilderenaInstaller/1.0")
+        $wc.DownloadFile($dl.Url, $dest)
+        $wc.Dispose()
         $sizeMB = [math]::Round((Get-Item $dest).Length / 1MB, 1)
         Write-Host "done ($sizeMB MB)" -ForegroundColor Green
     } catch {
         Write-Host "FAILED" -ForegroundColor Red
         Write-Host "     $($_.Exception.Message)" -ForegroundColor Red
         Write-Host ""
-        Write-Host " Common causes:" -ForegroundColor Yellow
-        Write-Host "   - The game is open. Close Dragonwilds and try again."
-        Write-Host "   - Network interruption. Check your connection and re-run the installer."
+        Write-Host " Retry tip: re-run the installer. It will re-download only failed files."
+        Write-Host " If the issue persists, check your internet connection."
         Exit-WithPause 1
     }
 }
@@ -133,11 +136,14 @@ Write-Host ""
 Write-Host " Downloading Wilderena client VFX mod..." -ForegroundColor Cyan
 
 $clientZip = Join-Path $env:TEMP "WilderenaClient.zip"
-$clientUrl = "$baseUrl/WilderenaClient.zip"
+$clientUrl = "$supabaseUrl/WilderenaClient.zip"
 
 Write-Host "   > WilderenaClient.zip ... " -ForegroundColor White -NoNewline
 try {
-    Invoke-WebRequest -Uri $clientUrl -OutFile $clientZip -UseBasicParsing
+    $wc = New-Object System.Net.WebClient
+    $wc.Headers.Add("User-Agent", "WilderenaInstaller/1.0")
+    $wc.DownloadFile($clientUrl, $clientZip)
+    $wc.Dispose()
     $sizeMB = [math]::Round((Get-Item $clientZip).Length / 1MB, 1)
     Write-Host "done ($sizeMB MB)" -ForegroundColor Green
 } catch {
