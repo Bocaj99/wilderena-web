@@ -94,23 +94,25 @@ if (-not (Test-Path $logicModsDir)) {
 # ---------------------------------------------------------------------------
 # 3. Download the PAK files (ModActor Blueprint)
 # ---------------------------------------------------------------------------
-$baseUrl = "https://cosbtlthecypogtciwkc.supabase.co/storage/v1/object/public/downloads/latest"
-$pakFiles = @(
-    "CTFScoreboard.pak",
-    "CTFScoreboard.utoc",
-    "CTFScoreboard.ucas"
+$supabaseUrl = "https://cosbtlthecypogtciwkc.supabase.co/storage/v1/object/public/downloads/latest"
+$githubUrl   = "https://github.com/Bocaj99/wilderena-web/releases/latest/download"
+
+# Small files from Supabase, large .ucas from GitHub Releases
+$pakDownloads = @(
+    @{ File = "CTFScoreboard.pak";  Url = "$supabaseUrl/CTFScoreboard.pak" },
+    @{ File = "CTFScoreboard.utoc"; Url = "$supabaseUrl/CTFScoreboard.utoc" },
+    @{ File = "CTFScoreboard.ucas"; Url = "$githubUrl/CTFScoreboard.ucas" }
 )
 
 Write-Host " Downloading Wilderena PAK files..." -ForegroundColor Cyan
 Write-Host " (The .ucas file is ~280 MB - this may take a minute.)"
 Write-Host ""
 
-foreach ($file in $pakFiles) {
-    $url  = "$baseUrl/$file"
-    $dest = Join-Path $logicModsDir $file
-    Write-Host "   > $file ... " -ForegroundColor White -NoNewline
+foreach ($dl in $pakDownloads) {
+    $dest = Join-Path $logicModsDir $dl.File
+    Write-Host "   > $($dl.File) ... " -ForegroundColor White -NoNewline
     try {
-        Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing
+        Invoke-WebRequest -Uri $dl.Url -OutFile $dest -UseBasicParsing
         $sizeMB = [math]::Round((Get-Item $dest).Length / 1MB, 1)
         Write-Host "done ($sizeMB MB)" -ForegroundColor Green
     } catch {
