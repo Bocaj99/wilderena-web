@@ -98,7 +98,7 @@ if (-not (Test-Path $logicModsDir)) {
 # 3. Download the PAK files (ModActor Blueprint)
 # ---------------------------------------------------------------------------
 $supabaseUrl = "https://cosbtlthecypogtciwkc.supabase.co/storage/v1/object/public/downloads/latest"
-$githubUrl   = "https://github.com/Bocaj99/wilderena-web/releases/latest/download"
+$githubUrl   = "https://github.com/Bocaj99/wilderena-web/releases/download/v1.0.0"
 
 # Small files from Supabase, large .ucas from GitHub Releases
 $pakDownloads = @(
