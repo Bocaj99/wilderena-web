@@ -112,13 +112,33 @@ foreach ($dl in $pakDownloads) {
     $dest = Join-Path $logicModsDir $dl.File
     Write-Host "   > $($dl.File) ... " -ForegroundColor White -NoNewline
     try {
-        # Use .NET WebClient for large files (handles redirects + no memory issues)
-        $wc = New-Object System.Net.WebClient
-        $wc.Headers.Add("User-Agent", "WilderenaInstaller/1.0")
-        $wc.DownloadFile($dl.Url, $dest)
-        $wc.Dispose()
+        # Use HttpClient with streaming for large files (handles redirects + no timeout)
+        $handler = New-Object System.Net.Http.HttpClientHandler
+        $handler.AllowAutoRedirect = $true
+        $handler.MaxAutomaticRedirections = 10
+        $http = New-Object System.Net.Http.HttpClient($handler)
+        $http.Timeout = [TimeSpan]::FromMinutes(15)
+        $http.DefaultRequestHeaders.Add("User-Agent", "WilderenaInstaller/1.0")
+        $response = $http.GetAsync($dl.Url, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).Result
+        $response.EnsureSuccessStatusCode() | Out-Null
+        $stream = $response.Content.ReadAsStreamAsync().Result
+        $fs = [System.IO.File]::Create($dest)
+        $buffer = New-Object byte[] (8192 * 16)
+        $totalRead = 0
+        $totalSize = $response.Content.Headers.ContentLength
+        while (($read = $stream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+            $fs.Write($buffer, 0, $read)
+            $totalRead += $read
+            if ($totalSize -and $totalSize -gt 0) {
+                $pct = [math]::Round(($totalRead / $totalSize) * 100, 0)
+                Write-Host "`r   > $($dl.File) ... $pct% ($([math]::Round($totalRead/1MB,1)) MB)    " -NoNewline
+            }
+        }
+        $fs.Close()
+        $stream.Close()
+        $http.Dispose()
         $sizeMB = [math]::Round((Get-Item $dest).Length / 1MB, 1)
-        Write-Host "done ($sizeMB MB)" -ForegroundColor Green
+        Write-Host "`r   > $($dl.File) ... done ($sizeMB MB)                    " -ForegroundColor Green
     } catch {
         Write-Host "FAILED" -ForegroundColor Red
         Write-Host "     $($_.Exception.Message)" -ForegroundColor Red
