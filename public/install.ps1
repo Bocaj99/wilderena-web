@@ -112,31 +112,29 @@ foreach ($dl in $pakDownloads) {
     $dest = Join-Path $logicModsDir $dl.File
     Write-Host "   > $($dl.File) ... " -ForegroundColor White -NoNewline
     try {
-        # Use HttpClient with streaming for large files (handles redirects + no timeout)
-        $handler = New-Object System.Net.Http.HttpClientHandler
-        $handler.AllowAutoRedirect = $true
-        $handler.MaxAutomaticRedirections = 10
-        $http = New-Object System.Net.Http.HttpClient($handler)
-        $http.Timeout = [TimeSpan]::FromMinutes(15)
-        $http.DefaultRequestHeaders.Add("User-Agent", "WilderenaInstaller/1.0")
-        $response = $http.GetAsync($dl.Url, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).Result
-        $response.EnsureSuccessStatusCode() | Out-Null
-        $stream = $response.Content.ReadAsStreamAsync().Result
+        # Use WebRequest with streaming (PS 5.1 compatible, handles redirects)
+        $req = [System.Net.HttpWebRequest]::Create($dl.Url)
+        $req.UserAgent = "WilderenaInstaller/1.0"
+        $req.Timeout = 900000        # 15 minutes
+        $req.ReadWriteTimeout = 900000
+        $req.AllowAutoRedirect = $true
+        $resp = $req.GetResponse()
+        $totalSize = $resp.ContentLength
+        $stream = $resp.GetResponseStream()
         $fs = [System.IO.File]::Create($dest)
-        $buffer = New-Object byte[] (8192 * 16)
+        $buffer = New-Object byte[] 131072  # 128KB chunks
         $totalRead = 0
-        $totalSize = $response.Content.Headers.ContentLength
         while (($read = $stream.Read($buffer, 0, $buffer.Length)) -gt 0) {
             $fs.Write($buffer, 0, $read)
             $totalRead += $read
-            if ($totalSize -and $totalSize -gt 0) {
+            if ($totalSize -gt 0) {
                 $pct = [math]::Round(($totalRead / $totalSize) * 100, 0)
                 Write-Host "`r   > $($dl.File) ... $pct% ($([math]::Round($totalRead/1MB,1)) MB)    " -NoNewline
             }
         }
         $fs.Close()
         $stream.Close()
-        $http.Dispose()
+        $resp.Close()
         $sizeMB = [math]::Round((Get-Item $dest).Length / 1MB, 1)
         Write-Host "`r   > $($dl.File) ... done ($sizeMB MB)                    " -ForegroundColor Green
     } catch {
