@@ -24,6 +24,9 @@ function Exit-WithPause($code) {
 
 Write-Banner "WILDERENA - Client Mod Installer"
 
+# Force TLS 1.2 (GitHub rejects older protocols)
+[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+
 # ---------------------------------------------------------------------------
 # 1. Locate the RSDragonwilds install (look for Binaries\Win64 as the anchor)
 # ---------------------------------------------------------------------------
