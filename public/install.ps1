@@ -1,8 +1,15 @@
 #Requires -Version 5.1
 
-# Wilderena Mod Installer
+# Wilderena Mod Installer (one-click)
 # Invoked by WilderenaInstaller.bat via:
 #   powershell -NoProfile -ExecutionPolicy Bypass -Command "iwr https://wilderena.com/install.ps1 | iex"
+#
+# Downloads the single WilderenaModpack.zip from GitHub Releases and installs
+# everything needed for the mod to operate, with zero user configuration:
+#   - UE4SS + WilderenaClient mod (VFX + class asset preload)
+#   - CTFScoreboard LogicMod (.pak/.ucas/.utoc)
+#   - Visual C++ 2015-2022 runtime DLLs (bundled locally to prevent mismatches)
+#   - Pre-warmed shader pipeline cache (.upipelinecache -> %LOCALAPPDATA%)
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference    = "SilentlyContinue"
@@ -22,13 +29,23 @@ function Exit-WithPause($code) {
     exit $code
 }
 
-Write-Banner "WILDERENA - Client Mod Installer"
+Write-Banner "WILDERENA - Mod Installer (one-click)"
 
-# Force TLS 1.2 (GitHub rejects older protocols)
+# TLS 1.2 required by GitHub
 [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
 
 # ---------------------------------------------------------------------------
-# 1. Locate the RSDragonwilds install (look for Binaries\Win64 as the anchor)
+# 1. Check game isn't running (avoids file locks on DLL overwrite)
+# ---------------------------------------------------------------------------
+$running = Get-Process -Name "RSDragonwilds-Win64-Shipping" -ErrorAction SilentlyContinue
+if ($running) {
+    Write-Host " [ERROR] RSDragonwilds is currently running." -ForegroundColor Red
+    Write-Host "         Close the game completely, then re-run the installer." -ForegroundColor Yellow
+    Exit-WithPause 1
+}
+
+# ---------------------------------------------------------------------------
+# 2. Locate RSDragonwilds install
 # ---------------------------------------------------------------------------
 $candidateRoots = @(
     "C:\Program Files (x86)\Steam\steamapps\common\RSDragonwilds\RSDragonwilds",
@@ -42,7 +59,6 @@ try {
     $steamInstall = (Get-ItemProperty -Path "HKLM:\SOFTWARE\WOW6432Node\Valve\Steam" -Name "InstallPath" -ErrorAction SilentlyContinue).InstallPath
     if ($steamInstall) {
         $candidateRoots += Join-Path $steamInstall "steamapps\common\RSDragonwilds\RSDragonwilds"
-
         $vdfPath = Join-Path $steamInstall "steamapps\libraryfolders.vdf"
         if (Test-Path $vdfPath) {
             $vdfContent = Get-Content $vdfPath -Raw
@@ -57,8 +73,7 @@ try {
 
 $gameRoot = $null
 foreach ($path in $candidateRoots | Select-Object -Unique) {
-    $binTest = Join-Path $path "Binaries\Win64"
-    if (Test-Path $binTest) {
+    if (Test-Path (Join-Path $path "Binaries\Win64")) {
         $gameRoot = $path
         break
     }
@@ -72,125 +87,123 @@ if (-not $gameRoot) {
     Write-Host ""
     $gameRoot = Read-Host " Path"
     if (-not (Test-Path (Join-Path $gameRoot "Binaries\Win64"))) {
-        Write-Host ""
         Write-Host " [ERROR] Path not found or invalid." -ForegroundColor Red
         Exit-WithPause 1
     }
 }
 
-$paksDir = Join-Path $gameRoot "Content\Paks"
-$binDir  = Join-Path $gameRoot "Binaries\Win64"
-$logicModsDir = Join-Path $paksDir "LogicMods"
-
 Write-Host " [OK] Found game at:" -ForegroundColor Green
 Write-Host "      $gameRoot"
-Write-Host ""
 
 # ---------------------------------------------------------------------------
-# 2. Ensure LogicMods folder exists
+# 3. Download WilderenaModpack.zip (one file, ~290 MB)
 # ---------------------------------------------------------------------------
-if (-not (Test-Path $logicModsDir)) {
-    New-Item -ItemType Directory -Path $logicModsDir | Out-Null
-    Write-Host " [OK] Created LogicMods folder" -ForegroundColor Green
+$modpackUrl = "https://github.com/Bocaj99/wilderena-web/releases/download/v1.0.0/WilderenaModpack.zip"
+$tmpRoot    = Join-Path $env:TEMP "Wilderena_Install_$(Get-Random -Maximum 999999)"
+$modpackZip = Join-Path $tmpRoot "WilderenaModpack.zip"
+$extractDir = Join-Path $tmpRoot "extract"
+New-Item -ItemType Directory -Path $tmpRoot -Force | Out-Null
+
+Write-Host ""
+Write-Host " Downloading mod pack (~290 MB, one-time)..." -ForegroundColor Cyan
+Write-Host ""
+
+try {
+    $curlExe = Join-Path $env:SystemRoot "System32\curl.exe"
+    if (Test-Path $curlExe) {
+        & $curlExe -L -o $modpackZip --retry 3 --connect-timeout 30 --max-time 1800 --progress-bar $modpackUrl
+        if ($LASTEXITCODE -ne 0) { throw "curl exit code $LASTEXITCODE" }
+    } else {
+        $wc = New-Object System.Net.WebClient
+        $wc.Headers.Add("User-Agent", "WilderenaInstaller/2.0")
+        $wc.DownloadFile($modpackUrl, $modpackZip)
+        $wc.Dispose()
+    }
+    if (-not (Test-Path $modpackZip) -or (Get-Item $modpackZip).Length -lt 10MB) {
+        throw "Downloaded file is missing or truncated"
+    }
+    $sizeMB = [math]::Round((Get-Item $modpackZip).Length / 1MB, 1)
+    Write-Host " [OK] Downloaded ($sizeMB MB)" -ForegroundColor Green
+} catch {
+    Write-Host " [ERROR] Download failed: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "         Check your connection and re-run the installer." -ForegroundColor Yellow
+    try { Remove-Item $tmpRoot -Recurse -Force } catch {}
+    Exit-WithPause 1
 }
 
 # ---------------------------------------------------------------------------
-# 3. Download the PAK files (ModActor Blueprint)
+# 4. Extract
 # ---------------------------------------------------------------------------
-$supabaseUrl = "https://cosbtlthecypogtciwkc.supabase.co/storage/v1/object/public/downloads/latest"
-$githubUrl   = "https://github.com/Bocaj99/wilderena-web/releases/download/v1.0.0"
-
-# Small files from Supabase, large .ucas from GitHub Releases
-$pakDownloads = @(
-    @{ File = "CTFScoreboard.pak";  Url = "$supabaseUrl/CTFScoreboard.pak" },
-    @{ File = "CTFScoreboard.utoc"; Url = "$supabaseUrl/CTFScoreboard.utoc" },
-    @{ File = "CTFScoreboard.ucas"; Url = "$githubUrl/CTFScoreboard.ucas" }
-)
-
-Write-Host " Downloading Wilderena PAK files..." -ForegroundColor Cyan
-Write-Host " (The .ucas file is ~280 MB - this may take a minute.)"
 Write-Host ""
+Write-Host " Extracting..." -ForegroundColor Cyan
+try {
+    Expand-Archive -Path $modpackZip -DestinationPath $extractDir -Force
+    Write-Host " [OK] Extracted" -ForegroundColor Green
+} catch {
+    Write-Host " [ERROR] Extraction failed: $($_.Exception.Message)" -ForegroundColor Red
+    try { Remove-Item $tmpRoot -Recurse -Force } catch {}
+    Exit-WithPause 1
+}
 
-foreach ($dl in $pakDownloads) {
-    $dest = Join-Path $logicModsDir $dl.File
-    Write-Host "   > $($dl.File) ... " -ForegroundColor White -NoNewline
+# ---------------------------------------------------------------------------
+# 5. Install: mirror payload\game\* -> <gameRoot>, payload\appdata\* -> %LOCALAPPDATA%\RSDragonwilds
+# ---------------------------------------------------------------------------
+$gameSrc    = Join-Path $extractDir "payload\game"
+$appdataSrc = Join-Path $extractDir "payload\appdata"
+$appdataDst = Join-Path $env:LOCALAPPDATA "RSDragonwilds"
+
+if (-not (Test-Path $gameSrc)) {
+    Write-Host " [ERROR] Invalid mod pack: payload\game missing" -ForegroundColor Red
+    try { Remove-Item $tmpRoot -Recurse -Force } catch {}
+    Exit-WithPause 1
+}
+
+Write-Host ""
+Write-Host " Installing mod files to game folder..." -ForegroundColor Cyan
+try {
+    # robocopy returns >=8 on real errors; 0-7 indicates success (some files copied, etc.)
+    $rcArgs = @($gameSrc, $gameRoot, "/E", "/NFL", "/NDL", "/NJH", "/NJS", "/NP", "/R:1", "/W:1")
+    & robocopy @rcArgs | Out-Null
+    if ($LASTEXITCODE -ge 8) { throw "robocopy errorlevel $LASTEXITCODE" }
+    Write-Host " [OK] Game files installed" -ForegroundColor Green
+} catch {
+    Write-Host " [ERROR] Install failed: $($_.Exception.Message)" -ForegroundColor Red
+    try { Remove-Item $tmpRoot -Recurse -Force } catch {}
+    Exit-WithPause 1
+}
+
+if (Test-Path $appdataSrc) {
+    Write-Host ""
+    Write-Host " Pre-seeding shader cache..." -ForegroundColor Cyan
     try {
-        # Use curl.exe for downloads (built into Win10/11, handles redirects + large files)
-        $curlExe = Join-Path $env:SystemRoot "System32\curl.exe"
-        if (Test-Path $curlExe) {
-            Write-Host "" # newline for curl progress
-            & $curlExe -L -o $dest --retry 3 --connect-timeout 30 --max-time 900 --progress-bar $dl.Url
-            if ($LASTEXITCODE -ne 0) { throw "Download failed (curl exit code $LASTEXITCODE)" }
+        if (-not (Test-Path $appdataDst)) { New-Item -ItemType Directory -Path $appdataDst -Force | Out-Null }
+        $rcArgs = @($appdataSrc, $appdataDst, "/E", "/NFL", "/NDL", "/NJH", "/NJS", "/NP", "/R:1", "/W:1")
+        & robocopy @rcArgs | Out-Null
+        if ($LASTEXITCODE -ge 8) {
+            Write-Host " [WARN] Shader cache copy failed (non-fatal; game will compile fresh)" -ForegroundColor Yellow
         } else {
-            # Fallback: Invoke-WebRequest (works for smaller files)
-            Invoke-WebRequest -Uri $dl.Url -OutFile $dest -UseBasicParsing -TimeoutSec 900
+            Write-Host " [OK] Shader pipeline cache installed" -ForegroundColor Green
         }
-        if (-not (Test-Path $dest) -or (Get-Item $dest).Length -lt 1000) {
-            throw "File is missing or too small after download"
-        }
-        $sizeMB = [math]::Round((Get-Item $dest).Length / 1MB, 1)
-        Write-Host "   > $($dl.File) ... done ($sizeMB MB)" -ForegroundColor Green
     } catch {
-        Write-Host "   > $($dl.File) ... FAILED" -ForegroundColor Red
-        Write-Host "     $($_.Exception.Message)" -ForegroundColor Red
-        Write-Host ""
-        Write-Host " Retry tip: re-run the installer. It will re-download only failed files."
-        Write-Host " If the issue persists, check your internet connection."
-        Exit-WithPause 1
+        Write-Host " [WARN] Shader cache copy failed: $($_.Exception.Message)" -ForegroundColor Yellow
     }
 }
 
 # ---------------------------------------------------------------------------
-# 4. Download + extract WilderenaClient.zip (UE4SS + client VFX mod)
+# 6. Cleanup
 # ---------------------------------------------------------------------------
-Write-Host ""
-Write-Host " Downloading Wilderena client VFX mod..." -ForegroundColor Cyan
-
-$clientZip = Join-Path $env:TEMP "WilderenaClient.zip"
-$clientUrl = "$supabaseUrl/WilderenaClient.zip"
-
-Write-Host "   > WilderenaClient.zip ... " -ForegroundColor White -NoNewline
-try {
-    $wc = New-Object System.Net.WebClient
-    $wc.Headers.Add("User-Agent", "WilderenaInstaller/1.0")
-    $wc.DownloadFile($clientUrl, $clientZip)
-    $wc.Dispose()
-    $sizeMB = [math]::Round((Get-Item $clientZip).Length / 1MB, 1)
-    Write-Host "done ($sizeMB MB)" -ForegroundColor Green
-} catch {
-    Write-Host "FAILED" -ForegroundColor Red
-    Write-Host "     $($_.Exception.Message)" -ForegroundColor Red
-    Exit-WithPause 1
-}
-
-Write-Host "   > Extracting to Binaries\Win64 ... " -ForegroundColor White -NoNewline
-try {
-    # Extract over existing files (upsert semantics)
-    Expand-Archive -Path $clientZip -DestinationPath $binDir -Force
-    Write-Host "done" -ForegroundColor Green
-} catch {
-    Write-Host "FAILED" -ForegroundColor Red
-    Write-Host "     $($_.Exception.Message)" -ForegroundColor Red
-    Write-Host ""
-    Write-Host " Common causes:" -ForegroundColor Yellow
-    Write-Host "   - The game is open. Close Dragonwilds and try again."
-    Write-Host "   - UE4SS DLL is locked by a previous process."
-    Exit-WithPause 1
-}
-
-# Clean up temp zip
-try { Remove-Item $clientZip -Force } catch {}
+try { Remove-Item $tmpRoot -Recurse -Force } catch {}
 
 # ---------------------------------------------------------------------------
-# 5. Done
+# 7. Done
 # ---------------------------------------------------------------------------
 Write-Banner "INSTALLATION COMPLETE!" "Green"
-Write-Host " PAK files installed to:"
-Write-Host "   $logicModsDir"
+Write-Host " Installed:" -ForegroundColor White
+Write-Host "   - UE4SS + WilderenaClient mod (class asset preload enabled)"
+Write-Host "   - CTFScoreboard LogicMod"
+Write-Host "   - Visual C++ 2015-2022 runtime (bundled locally)"
+Write-Host "   - Shader pipeline cache pre-seeded"
 Write-Host ""
-Write-Host " UE4SS + WilderenaClient installed to:"
-Write-Host "   $binDir"
-Write-Host ""
-Write-Host " You can now launch Dragonwilds and join the Wilderena server." -ForegroundColor Cyan
-Write-Host " Need help? Join our Discord at https://wilderena.com"
+Write-Host " Launch Dragonwilds normally and join the Wilderena server." -ForegroundColor Cyan
+Write-Host " Need help? https://wilderena.com"
 Exit-WithPause 0
