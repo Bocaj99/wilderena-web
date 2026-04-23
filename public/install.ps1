@@ -73,9 +73,19 @@ try {
 
 $gameRoot = $null
 foreach ($path in $candidateRoots | Select-Object -Unique) {
-    if (Test-Path (Join-Path $path "Binaries\Win64")) {
-        $gameRoot = $path
-        break
+    try {
+        # Extract drive letter; skip if drive not mounted (avoids DriveNotFoundException)
+        if ($path -match '^([A-Za-z]):') {
+            $driveLetter = $Matches[1]
+            if (-not (Test-Path "${driveLetter}:\" -ErrorAction SilentlyContinue)) { continue }
+        }
+        $binPath = Join-Path $path "Binaries\Win64" -ErrorAction SilentlyContinue
+        if ($binPath -and (Test-Path $binPath -ErrorAction SilentlyContinue)) {
+            $gameRoot = $path
+            break
+        }
+    } catch {
+        continue
     }
 }
 
